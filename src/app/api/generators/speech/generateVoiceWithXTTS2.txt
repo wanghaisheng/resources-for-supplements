@@ -1,0 +1,95 @@
+import { addBase64Header } from "@/lib/data/addBase64Header"
+import { tryApiCalls } from "../../utils/tryApiCall"
+
+export type StoryLine = {
+  text: string
+  audio: string // in base64
+}
+
+// TODO delete this? we don't need an env var for this I think?
+const gradioSpaceApiUrl = `https://jbilcke-hf-ai-story-server.hf.space`
+const huggingFaceSpace = "jbilcke-hf/ai-story-server"
+const apiKey = `${process.env.MICROSERVICE_API_SECRET_TOKEN || ""}`
+
+export async function generateSpeechWithParlerTTS({
+  text,
+  audioId,
+  debug = false,
+  neverThrow = false,
+}: {
+  text: string
+  audioId: string
+  debug?: boolean
+  neverThrow?: boolean
+}): Promise<string> {
+  const actualFunction = async () => {
+
+    const prompt = text.slice(0, 30)
+    // console.log(`user requested "${cropped}${cropped !== prompt ? "..." : ""}"`)
+
+    // positivePrompt = filterOutBadWords(positivePrompt)
+
+    const promptToGenerateAudioStory = ``
+
+    const res = await fetch(gradioSpaceApiUrl + (gradioSpaceApiUrl.endsWith("/") ? "" : "/") + "api/predict", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        // Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        fn_index: 0, // <- important!
+        data: [
+          apiKey,
+          promptToGenerateAudioStory,
+          prompt,
+
+          // TODO: add support for custom wav
+          // voice === "Julian" ? "Julian" : "Cloée",
+          "Julian",
+
+          // maxLines,
+        ],
+      }),
+      cache: "no-store",
+      // we can also use this (see https://vercel.com/blog/vercel-cache-api-nextjs-cache)
+      // next: { revalidate: 1 }
+    })
+
+
+    const rawJson = await res.json()
+    const data = rawJson.data as StoryLine[][]
+
+    const stories = data?.[0] || []
+
+    if (res.status !== 200) {
+      throw new Error('Failed to fetch data')
+    }
+
+    return stories.map(line => ({
+      text: line.text.replaceAll(" .", ".").replaceAll(" ?", "?").replaceAll(" !", "!").trim(),
+      audio: addBase64Header(line.audio, "mp3")
+    }))
+  }
+
+  try {
+    if (!prompt?.length) {
+      throw new Error(`prompt is too short!`)
+    }
+
+    const result = await tryApiCalls({
+      func: actualFunction,
+      huggingFaceSpace,
+      debug,
+      failureMessage: "failed to generate the audio story"
+    })
+    return BROKEN
+  } catch (err) {
+    if (neverThrow) {
+      console.error(`generateAudioStory():`, err)
+      return ""
+    } else {
+      throw err
+    }
+  }
+}
